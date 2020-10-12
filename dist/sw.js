@@ -14,13 +14,29 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
-const terser_1 = require("terser");
 // 拼接文件内容
 const template = (plugin) => {
     return `const cacheList = ${JSON.stringify(plugin.cacheList)}
+          const skipWaiting = ${plugin.skipWaiting}
           self.addEventListener('install', event => {
-            event.waitUntil(caches.open('${plugin.runtimeCache}').then(cache => cache.addAll(cacheList)))
-            ${plugin.skipWaiting && `self.skipWaiting()`}
+            event.waitUntil(
+              caches.open('${plugin.cacheStorageName}').then(cache => cache.addAll(cacheList))
+            )
+            skipWaiting && self.skipWaiting()
+          })
+
+          self.addEventListener('activate', event => {
+            event.waitUntil(new Promise((resolve, reject) => {
+              try {
+                caches.keys().then(keyList => Promise.all(
+                  keyList.map(key => !cacheList.includes(key) && caches.delete(key))
+                ))
+                skipWaiting && clients.claim()
+                resolve()
+              } catch (err) {
+                reject(err)
+              }
+            }))
           })
 
           self.addEventListener('fetch', event => {
@@ -32,9 +48,6 @@ const template = (plugin) => {
 };
 exports.writeServiceWorker = (plugin) => __awaiter(void 0, void 0, void 0, function* () {
     const str = template(plugin);
-    const { code } = yield terser_1.minify(str);
-    const sw = path_1.default.join(plugin.webpackConfig.path, `${plugin.serviceWorkerFilename}.js`);
-    if (!code)
-        return new Error('Service worker register error');
-    fs_1.default.writeFileSync(sw, code, 'utf8');
+    const sw = path_1.default.join(plugin.webpackConfig.path, plugin.serviceWorkerFilename);
+    fs_1.default.writeFileSync(sw, str, 'utf8');
 });

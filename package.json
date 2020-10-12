@@ -1,6 +1,6 @@
 {
   "name": "@cdjs/pwa-webpack-plugin",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Progressive Web App's webpack plugin",
   "main": "dist/index.js",
   "repository": "https://github.com/acejs/pwa-webpack-plugin.git",
@@ -20,6 +20,10 @@
     "PWA",
     "Service Worker"
   ],
+  "dependencies": {
+    "chalk": "^4.1.0",
+    "sharp": "^0.26.1"
+  },
   "devDependencies": {
     "@types/sharp": "^0.26.0",
     "@types/webpack": "^4.41.22",
@@ -27,10 +31,5 @@
     "eslint-config-prettier": "^6.12.0",
     "eslint-plugin-prettier": "^3.1.4",
     "prettier": "^2.1.2"
-  },
-  "dependencies": {
-    "chalk": "^4.1.0",
-    "sharp": "^0.26.1",
-    "terser": "^5.3.3"
   }
 }

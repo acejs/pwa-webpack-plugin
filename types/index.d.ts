@@ -9,7 +9,7 @@ declare class PWAWebpackPlugin {
     noStaticAssets: string[];
     noCache: string[];
     skipWaiting: boolean;
-    runtimeCache: string;
+    cacheStorageName: string;
     manifestFilename: string;
     serviceWorkerFilename: string;
     manifest: IManifest;

@@ -1,5 +1,5 @@
 import { Compiler } from 'webpack'
-import { IOptions, IManifest } from './types'
+import { IOptions, IManifest, CompilationHooksWithHtml } from './types'
 import path from 'path'
 import { warn, isType } from './utils'
 import { writeServiceWorker } from './sw'
@@ -19,11 +19,11 @@ class PWAWebpackPlugin {
 
   skipWaiting: boolean = true // 是否跳过等待
 
-  runtimeCache: string = 'storage' // cache storage 库名
+  cacheStorageName: string = 'runtime-storage' // cache storage 库名
 
   manifestFilename: string = 'manifest.webmanifest'
 
-  serviceWorkerFilename: string = 'sw'
+  serviceWorkerFilename: string = 'sw.js'
 
   manifest: IManifest = {
     name: 'Progressive Web App',
@@ -38,7 +38,7 @@ class PWAWebpackPlugin {
   constructor(options: IOptions) {
     const {
       skipWaiting,
-      runtimeCache,
+      cacheStorageName,
       noCache,
       manifest,
       manifestFilename,
@@ -50,7 +50,7 @@ class PWAWebpackPlugin {
 
     if (typeof skipWaiting === 'boolean') this.skipWaiting = skipWaiting
 
-    runtimeCache && (this.runtimeCache = runtimeCache)
+    cacheStorageName && (this.cacheStorageName = cacheStorageName)
 
     manifestFilename && (this.manifestFilename = manifestFilename)
     serviceWorkerFilename &&
@@ -70,32 +70,31 @@ class PWAWebpackPlugin {
       path: outPath || path.join(process.cwd(), 'dist'),
     })
 
-    // html-webpack-plugin hooks引用 在
     // index.html 中引用注册表文件和注册 service worker
-    compiler.hooks.afterCompile.tap(self.constructor.name, (compilation) => {
-      let alterAssetTags
+    compiler.hooks.compilation.tap(self.constructor.name, (compilation) => {
+      // This is set in html-webpack-plugin pre-v4.
+      let hook = (compilation.hooks as CompilationHooksWithHtml)
+        .htmlWebpackPluginAlterAssetTags
 
-      // alterAssetTags 是 html-webpack-plugin 注册的钩子
-      for (const [key, value] of Object.entries(compilation.hooks)) {
-        if (key === 'htmlWebpackPluginAlterAssetTags') {
-          alterAssetTags = value
-          break
+      if (!hook) {
+        if (!Array.isArray(compiler.options.plugins)) {
+          warn(`No plugin has registered.`)
+          process.exit(0)
         }
-      }
 
-      if (!alterAssetTags) {
-        warn(
-          `Unable to find an instance of HtmlWebpackPlugin in the current compilation`
+        const [htmlPlugin] = compiler.options.plugins.filter(
+          (plugin) => plugin.constructor.name === 'HtmlWebpackPlugin'
         )
+
+        // temp
+        hook = (htmlPlugin.constructor as any).getHooks(compilation)
+          .alterAssetTagGroups
       }
 
-      alterAssetTags.tapAsync(
-        self.constructor.name,
-        (htmlPluginData: any, cb: any) => {
-          writeInHtmlWebpackPlugin(self, htmlPluginData)
-          cb()
-        }
-      )
+      hook.tapAsync(self.constructor.name, (htmlPluginData: any, cb: any) => {
+        writeInHtmlWebpackPlugin(self, htmlPluginData)
+        cb()
+      })
     })
 
     // 获取所有资源目录，并添加到缓存文件列表
@@ -136,8 +135,20 @@ function writeInHtmlWebpackPlugin(
   plugin: PWAWebpackPlugin,
   htmlPluginData: any
 ) {
-  // 3.2.0 版本的写法
-  const { head, body } = htmlPluginData
+  const {
+    plugin: { version },
+  } = htmlPluginData
+
+  let head = []
+  let body = []
+  if (version === 4) {
+    head = htmlPluginData.headTags
+    body = htmlPluginData.bodyTags
+  } else {
+    head = htmlPluginData.head
+    body = htmlPluginData.body
+  }
+
   // 引入注册表文件
   head.unshift({
     tagName: 'link',
@@ -154,7 +165,7 @@ function writeInHtmlWebpackPlugin(
     voidTag: false,
     innerHTML: `if ('serviceWorker' in navigator) {
       navigator.serviceWorker
-        .register('${plugin.serviceWorkerFilename}.js')
+        .register('${plugin.serviceWorkerFilename}')
         .then(e => {
           console.log('serviceWorker register success!')
         })

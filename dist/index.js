@@ -17,9 +17,9 @@ class PWAWebpackPlugin {
         this.noStaticAssets = ['index.html']; // webpack打包中，非静态资源，这些资源通常置于服务器上
         this.noCache = []; // 不需要缓存的文件列表
         this.skipWaiting = true; // 是否跳过等待
-        this.runtimeCache = 'storage'; // cache storage 库名
+        this.cacheStorageName = 'runtime-storage'; // cache storage 库名
         this.manifestFilename = 'manifest.webmanifest';
-        this.serviceWorkerFilename = 'sw';
+        this.serviceWorkerFilename = 'sw.js';
         this.manifest = {
             name: 'Progressive Web App',
             short_name: 'PWA',
@@ -29,12 +29,12 @@ class PWAWebpackPlugin {
             display: 'fullscreen',
             icons: [],
         };
-        const { skipWaiting, runtimeCache, noCache, manifest, manifestFilename, serviceWorkerFilename, noStaticAssets, } = options;
+        const { skipWaiting, cacheStorageName, noCache, manifest, manifestFilename, serviceWorkerFilename, noStaticAssets, } = options;
         if (utils_1.isType(manifest, 'Object'))
             Object.assign(this.manifest, manifest);
         if (typeof skipWaiting === 'boolean')
             this.skipWaiting = skipWaiting;
-        runtimeCache && (this.runtimeCache = runtimeCache);
+        cacheStorageName && (this.cacheStorageName = cacheStorageName);
         manifestFilename && (this.manifestFilename = manifestFilename);
         serviceWorkerFilename &&
             (this.serviceWorkerFilename = serviceWorkerFilename);
@@ -48,21 +48,22 @@ class PWAWebpackPlugin {
             publicPath: publicPath || '',
             path: outPath || path_1.default.join(process.cwd(), 'dist'),
         });
-        // html-webpack-plugin hooks引用 在
         // index.html 中引用注册表文件和注册 service worker
-        compiler.hooks.afterCompile.tap(self.constructor.name, (compilation) => {
-            let alterAssetTags;
-            // alterAssetTags 是 html-webpack-plugin 注册的钩子
-            for (const [key, value] of Object.entries(compilation.hooks)) {
-                if (key === 'htmlWebpackPluginAlterAssetTags') {
-                    alterAssetTags = value;
-                    break;
+        compiler.hooks.compilation.tap(self.constructor.name, (compilation) => {
+            // This is set in html-webpack-plugin pre-v4.
+            let hook = compilation.hooks
+                .htmlWebpackPluginAlterAssetTags;
+            if (!hook) {
+                if (!Array.isArray(compiler.options.plugins)) {
+                    utils_1.warn(`No plugin has registered.`);
+                    process.exit(0);
                 }
+                const [htmlPlugin] = compiler.options.plugins.filter((plugin) => plugin.constructor.name === 'HtmlWebpackPlugin');
+                // temp
+                hook = htmlPlugin.constructor.getHooks(compilation)
+                    .alterAssetTagGroups;
             }
-            if (!alterAssetTags) {
-                utils_1.warn(`Unable to find an instance of HtmlWebpackPlugin in the current compilation`);
-            }
-            alterAssetTags.tapAsync(self.constructor.name, (htmlPluginData, cb) => {
+            hook.tapAsync(self.constructor.name, (htmlPluginData, cb) => {
                 writeInHtmlWebpackPlugin(self, htmlPluginData);
                 cb();
             });
@@ -99,8 +100,17 @@ class PWAWebpackPlugin {
  * @param htmlPluginData
  */
 function writeInHtmlWebpackPlugin(plugin, htmlPluginData) {
-    // 3.2.0 版本的写法
-    const { head, body } = htmlPluginData;
+    const { plugin: { version }, } = htmlPluginData;
+    let head = [];
+    let body = [];
+    if (version === 4) {
+        head = htmlPluginData.headTags;
+        body = htmlPluginData.bodyTags;
+    }
+    else {
+        head = htmlPluginData.head;
+        body = htmlPluginData.body;
+    }
     // 引入注册表文件
     head.unshift({
         tagName: 'link',
@@ -116,7 +126,7 @@ function writeInHtmlWebpackPlugin(plugin, htmlPluginData) {
         voidTag: false,
         innerHTML: `if ('serviceWorker' in navigator) {
       navigator.serviceWorker
-        .register('${plugin.serviceWorkerFilename}.js')
+        .register('${plugin.serviceWorkerFilename}')
         .then(e => {
           console.log('serviceWorker register success!')
         })
