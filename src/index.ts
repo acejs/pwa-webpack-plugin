@@ -105,7 +105,7 @@ class PWAWebpackPlugin {
 
         const cachePath = self.noStaticAssets.includes(file)
           ? file
-          : path.join(self.webpackConfig.publicPath, file)
+          : `${self.webpackConfig.publicPath}${file}`
 
         // spa 项目通常将 index.html 文件置于服务器
         this.cacheList.push(cachePath)

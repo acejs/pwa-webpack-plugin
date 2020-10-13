@@ -6,27 +6,33 @@ import PWAWebpackPlugin from './index'
 const template = (plugin: PWAWebpackPlugin): string => {
   return `const cacheList = ${JSON.stringify(plugin.cacheList)}
           const skipWaiting = ${plugin.skipWaiting}
+          const cacheName = '${plugin.cacheStorageName}'
+
+          async function clearOldResource () {
+            const keyList = await caches.keys()
+            for (const key of keyList.values()) {
+              if (key !== cacheName) await caches.delete(key)
+            }
+            const cache = await caches.open(cacheName)
+            const requests = await cache.keys()
+            
+            const full = cacheList.map(url => new Request(url).url)
+            const old = requests.filter(request => !full.includes(request.url))
+
+            await Promise.all(old.map(request => cache.delete(request.url)))
+          }
+
           self.addEventListener('install', event => {
             event.waitUntil(
-              caches.open('${
-                plugin.cacheStorageName
-              }').then(cache => cache.addAll(cacheList))
+              caches.open(cacheName).then(cache => cache.addAll(cacheList))
             )
             skipWaiting && self.skipWaiting()
           })
 
           self.addEventListener('activate', event => {
-            event.waitUntil(new Promise((resolve, reject) => {
-              try {
-                caches.keys().then(keyList => Promise.all(
-                  keyList.map(key => !cacheList.includes(key) && caches.delete(key))
-                ))
-                skipWaiting && clients.claim()
-                resolve()
-              } catch (err) {
-                reject(err)
-              }
-            }))
+            event.waitUntil(
+              Promise.all([clearOldResource(), skipWaiting && self.clients.claim()])
+            )
           })
 
           self.addEventListener('fetch', event => {

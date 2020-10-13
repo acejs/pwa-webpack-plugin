@@ -4,12 +4,13 @@
 
 [渐进式 Web 引用(PWA)](https://developer.mozilla.org/zh-CN/docs/Web/Progressive_web_apps) 相关概念......
 
-本插件赋能 webpack 打包应用，使应用能快速支持 PWA 相关技术。
+此插件目前主要实现如下功能：
 
-包括：
+- 通过用户传入的参数自动生成应用清单文件，并支持多尺寸 *icon* 的自动生成
+- 收集 webpack 打包后生成的静态资源，并自动写入 `Cache Storage`
+- 注册 `Service Worker` ，添加基本的资源缓存控制逻辑
 
-- 应用清单，添加到系统桌面
-- 注册 Service Worker，实现离线缓存
+
 
 ### 安装
 
@@ -18,6 +19,8 @@ yarn add @cdjs/pwa-webpack-plugin -D
 // or
 npm install @cdjs/pwa-webpack-plugin --save-dev
 ```
+
+
 
 ### 项目配置
 
@@ -31,6 +34,8 @@ plugins: [
   }),
 ]
 ```
+
+
 
 ### 参数
 
@@ -123,20 +128,19 @@ plugins: [
   ```javascript
   // 复制已存在的 icon 列表
   icons: [
-    (src: ''), // 路径
-    (type: ''), // 文件类型，MIME 格式
-    (sizes: ''), // 支持的格式列表，若是 .ico 这种支持多格式的文件，传入 '72x72 96x96 128x128 ... ...'
+    src: '', // 路径
+    type: '', // 文件类型，MIME 格式
+    sizes: '', // 支持的格式列表，若是 .ico 这种支持多格式的文件，传入 '72x72 96x96 128x128 ... ...'
   ]
 
   // 生成指定格式的 icon
   icons: [
-    (src: ''), // 路径
-    (type: ''), // 文件类型，MIME 格式
-    (targetSizes: [
-      // 指定要生成的尺寸
+    src: '', // 路径
+    type: '', // 文件类型，MIME 格式
+    targetSizes: [   // 指定要生成的尺寸
       '96x96',
       '128x128',
       '512x512'
-    ]),
+    ],
   ]
   ```
