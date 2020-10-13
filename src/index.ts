@@ -4,6 +4,7 @@ import path from 'path'
 import { warn, isType } from './utils'
 import { writeServiceWorker } from './sw'
 import { writeManifest } from './manifest'
+import { HtmlTagObject } from 'html-webpack-plugin'
 
 class PWAWebpackPlugin {
   webpackConfig = {
@@ -135,32 +136,16 @@ function writeInHtmlWebpackPlugin(
   plugin: PWAWebpackPlugin,
   htmlPluginData: any
 ) {
-  const {
-    plugin: { version },
-  } = htmlPluginData
-
-  let head = []
-  let body = []
-  if (version === 4) {
-    head = htmlPluginData.headTags
-    body = htmlPluginData.bodyTags
-  } else {
-    head = htmlPluginData.head
-    body = htmlPluginData.body
-  }
-
-  // 引入注册表文件
-  head.unshift({
+  const manifestLink: HtmlTagObject = {
     tagName: 'link',
     voidTag: true,
     attributes: {
       rel: 'manifest',
       href: plugin.manifestFilename,
     },
-  })
+  }
 
-  // 注册 service worker 脚本
-  body.push({
+  const serviceWorkerScript: HtmlTagObject = {
     tagName: 'script',
     voidTag: false,
     innerHTML: `if ('serviceWorker' in navigator) {
@@ -173,7 +158,16 @@ function writeInHtmlWebpackPlugin(
           console.log(err)
         })
     }`,
-  })
+    attributes: {},
+  }
+
+  if (htmlPluginData.plugin.version >= 4) {
+    htmlPluginData.headTags.unshift(manifestLink)
+    htmlPluginData.bodyTags.push(serviceWorkerScript)
+  } else {
+    htmlPluginData.head.unshift(manifestLink)
+    htmlPluginData.body.push(serviceWorkerScript)
+  }
 }
 
 export default PWAWebpackPlugin
