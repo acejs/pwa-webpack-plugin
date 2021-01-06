@@ -100,9 +100,10 @@ class PWAWebpackPlugin {
                     }
                 }
                 // SPA project usually places the index.html on the server
+                // Don`t use path join, publicPath //xxx  while be replaced
                 const cachePath = options.noStaticAssets.includes(file)
                     ? file
-                    : path_1.default.join(self.webpackConfig.publicPath, file);
+                    : `${self.webpackConfig.publicPath}${file}`;
                 self.cacheList.push(cachePath);
             }
             // Write Manifest and Service Worker during emit phase

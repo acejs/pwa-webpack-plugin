@@ -22,7 +22,7 @@ exports.writeManifest = (options, publicPath) => __awaiter(void 0, void 0, void 
     manifest.icons = result.map((item) => {
         const src = path_1.default.join(manifestIconDir, item.icon.src);
         map.set(src, item.source);
-        return Object.assign(Object.assign({}, item.icon), { src: path_1.default.join(publicPath, src) });
+        return Object.assign(Object.assign({}, item.icon), { src: `${publicPath}${src}` });
     });
     map.set(manifestFilename, JSON.stringify(manifest));
     return map;

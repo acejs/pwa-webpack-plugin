@@ -14,7 +14,7 @@ export const writeManifest = async (options: IOptions, publicPath: string) => {
   manifest.icons = result.map((item) => {
     const src = path.join(manifestIconDir, item.icon.src)
     map.set(src, item.source)
-    return { ...item.icon, src: path.join(publicPath, src) }
+    return { ...item.icon, src: `${publicPath}${src}` }
   })
 
   map.set(manifestFilename, JSON.stringify(manifest))

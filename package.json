@@ -1,6 +1,6 @@
 {
   "name": "@cdjs/pwa-webpack-plugin",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "Progressive Web App's webpack plugin",
   "main": "dist/index.js",
   "repository": "https://github.com/acejs/pwa-webpack-plugin.git",
