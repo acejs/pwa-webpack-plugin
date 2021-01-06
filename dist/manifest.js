@@ -14,41 +14,39 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const sharp_1 = __importDefault(require("sharp"));
 const path_1 = __importDefault(require("path"));
-const fs_1 = __importDefault(require("fs"));
-const dir = 'manifest-icon';
-exports.writeManifest = (plugin) => __awaiter(void 0, void 0, void 0, function* () {
-    const { webpackConfig: { path: output }, manifest, manifest: { icons }, manifestFilename, } = plugin;
-    // 创建 icon 文件夹
-    fs_1.default.mkdirSync(path_1.default.join(output, dir));
-    const result = yield dealWithIcons(icons, output);
-    if (result instanceof Error)
-        return result;
-    plugin.manifest.icons = result;
-    fs_1.default.writeFileSync(path_1.default.join(output, manifestFilename), JSON.stringify(manifest), 'utf8');
+const utils_1 = require("./utils");
+exports.writeManifest = (options, publicPath) => __awaiter(void 0, void 0, void 0, function* () {
+    const { manifest, manifestFilename, manifestIconDir } = options;
+    const result = yield dealWithIcons(manifest.icons);
+    const map = new Map();
+    manifest.icons = result.map((item) => {
+        const src = path_1.default.join(manifestIconDir, item.icon.src);
+        map.set(src, item.source);
+        return Object.assign(Object.assign({}, item.icon), { src: path_1.default.join(publicPath, src) });
+    });
+    map.set(manifestFilename, JSON.stringify(manifest));
+    return map;
 });
 /**
  * deal width option icon
  * @param icons options
  * @param output output path
  */
-const dealWithIcons = (icons, output) => __awaiter(void 0, void 0, void 0, function* () {
+const dealWithIcons = (icons) => __awaiter(void 0, void 0, void 0, function* () {
     function isCust(target) {
         return typeof target === 'object' && 'targetSizes' in target;
     }
     let result = [];
     if (isCust(icons)) {
-        result = yield exports.genIcons(icons, output);
+        result = yield exports.genIcons(icons);
     }
     else {
         for (const value of icons.values()) {
             if (isCust(value)) {
-                result = result.concat(yield exports.genIcons(value, output));
+                result = result.concat(yield exports.genIcons(value));
             }
             else {
-                const copy = yield exports.copyIcons(value, output);
-                if (copy instanceof Error)
-                    return copy;
-                result.push(Object.assign(Object.assign({}, value), { src: copy }));
+                result.push(yield exports.copyIcons(value));
             }
         }
     }
@@ -59,35 +57,40 @@ const dealWithIcons = (icons, output) => __awaiter(void 0, void 0, void 0, funct
  * @param icon
  * @param output
  */
-exports.copyIcons = (icon, output) => __awaiter(void 0, void 0, void 0, function* () {
+exports.copyIcons = (icon) => __awaiter(void 0, void 0, void 0, function* () {
     const { src } = icon;
-    // 默认截取最后的为文件名
+    // get File name
     const name = src.split('/').pop();
-    if (!name)
-        return new Error(`File: ${String(src)} does't exist`);
-    const newSrc = path_1.default.join(dir, name);
-    fs_1.default.copyFileSync(src, path_1.default.join(output, newSrc));
-    return newSrc;
+    if (!name) {
+        utils_1.warn(`File: ${String(src)} does't exist`);
+        process.exit(1);
+    }
+    return {
+        icon: Object.assign(Object.assign({}, icon), { src: name }),
+        source: yield sharp_1.default(src).toBuffer(),
+    };
 });
 /**
  * generate different size of icon by option icon and put them into output path
  * @param icons
  * @param output
+ * @returns { icon: { src, sizes, type }, source: { name: source } }
  */
-exports.genIcons = (icons, output) => __awaiter(void 0, void 0, void 0, function* () {
+exports.genIcons = (icons) => __awaiter(void 0, void 0, void 0, function* () {
     const result = [];
     const { src, type, targetSizes } = icons;
     const list = targetSizes.map((size) => size.split('x').map((i) => Number.parseInt(i, 10)));
-    const pipeline = sharp_1.default(src);
+    // file type
     const suffix = type.split('/')[1];
+    const pipeline = yield sharp_1.default(src);
     for (const size of list.values()) {
         const sizes = size.join('x');
-        const src = path_1.default.join(dir, `icon${sizes}.${suffix}`);
-        yield pipeline
+        const src = `icon${sizes}.${suffix}`;
+        const source = yield pipeline
             .clone()
             .resize(...size)
-            .toFile(path_1.default.join(output, src));
-        result.push({ src, sizes, type });
+            .toBuffer();
+        result.push({ icon: { src, sizes, type }, source });
     }
     return result;
 });

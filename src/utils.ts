@@ -1,8 +1,8 @@
 import { LogFn } from './types'
 import chalk from 'chalk'
 
-export const isType = (target: unknown, type: string): boolean => {
-  return Object.prototype.toString.call(target) === `[object ${type}]`
+export const toRawType = (target: unknown): string => {
+  return Object.prototype.toString.call(target).slice(8, -1)
 }
 
 export const log: LogFn = (message, color = 'blue') => {
@@ -19,5 +19,5 @@ export const log: LogFn = (message, color = 'blue') => {
 
 export const warn: LogFn = (message, color = 'red'): void => {
   log(message, color)
-  process.exit(0)
+  process.exit(1)
 }

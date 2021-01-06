@@ -1,10 +1,13 @@
 import { Compiler } from 'webpack'
-import { IOptions, IManifest, CompilationHooksWithHtml } from './types'
+import { IOptions, CompilationHooksWithHtml } from './types'
 import path from 'path'
-import { warn, isType } from './utils'
-import { writeServiceWorker } from './sw'
+import { warn, toRawType } from './utils'
+import { serviceWorkerTemplate } from './sw'
 import { writeManifest } from './manifest'
 import { HtmlTagObject } from 'html-webpack-plugin'
+import { RawSource } from 'webpack-sources'
+
+const pluginName = 'PWAWebpackPlugin'
 
 class PWAWebpackPlugin {
   webpackConfig = {
@@ -14,65 +17,50 @@ class PWAWebpackPlugin {
 
   cacheList: string[] = []
 
-  noStaticAssets: string[] = ['index.html'] // webpack打包中，非静态资源，这些资源通常置于服务器上
-
-  noCache: string[] = [] // 不需要缓存的文件列表
-
-  skipWaiting: boolean = true // 是否跳过等待
-
-  cacheStorageName: string = 'runtime-storage' // cache storage 库名
-
-  manifestFilename: string = 'manifest.webmanifest'
-
-  serviceWorkerFilename: string = 'sw.js'
-
-  manifest: IManifest = {
-    name: 'Progressive Web App',
-    short_name: 'PWA',
-    start_url: '/',
-    background_color: '#FFF',
-    theme_color: '#f4f4f4',
-    display: 'fullscreen',
-    icons: [],
+  options: IOptions = {
+    noStaticAssets: ['index.html'],
+    manifest: {
+      name: 'Progressive Web App',
+      short_name: 'PWA',
+      start_url: '/',
+      background_color: '#FFF',
+      theme_color: '#f4f4f4',
+      display: 'fullscreen',
+      icons: [],
+    },
+    noCache: [],
+    skipWaiting: true,
+    cacheStorageName: 'runtime-storage',
+    manifestFilename: 'manifest.webmanifest',
+    manifestIconDir: 'manifest-icon',
+    serviceWorkerFilename: 'sw.js',
   }
 
   constructor(options: IOptions) {
-    const {
-      skipWaiting,
-      cacheStorageName,
-      noCache,
-      manifest,
-      manifestFilename,
-      serviceWorkerFilename,
-      noStaticAssets,
-    } = options
-
-    if (isType(manifest, 'Object')) Object.assign(this.manifest, manifest)
-
-    if (typeof skipWaiting === 'boolean') this.skipWaiting = skipWaiting
-
-    cacheStorageName && (this.cacheStorageName = cacheStorageName)
-
-    manifestFilename && (this.manifestFilename = manifestFilename)
-    serviceWorkerFilename &&
-      (this.serviceWorkerFilename = serviceWorkerFilename)
-
-    Array.isArray(noCache) && (this.noCache = noCache)
-
-    Array.isArray(noStaticAssets) && (this.noStaticAssets = noStaticAssets)
+    if (toRawType(options) === 'Object') {
+      const exists: { [props: string]: any } = {}
+      for (const [key, value] of Object.entries(options)) {
+        if (key === 'manifest') Object.assign(this.options.manifest, value)
+        else if (key in this.options) {
+          exists[key] = value
+        }
+      }
+      Object.assign(this.options, exists)
+    }
   }
 
   apply(compiler: Compiler) {
     const self = this
+    const { options } = self
     const { publicPath, path: outPath } = compiler.options.output || {}
 
-    Object.assign(this.webpackConfig, {
+    Object.assign(self.webpackConfig, {
       publicPath: publicPath || '',
       path: outPath || path.join(process.cwd(), 'dist'),
     })
 
-    // index.html 中引用注册表文件和注册 service worker
-    compiler.hooks.compilation.tap(self.constructor.name, (compilation) => {
+    compiler.hooks.compilation.tap(pluginName, (compilation) => {
+      // load manifest and service worker in index.html
       // This is set in html-webpack-plugin pre-v4.
       let hook = (compilation.hooks as CompilationHooksWithHtml)
         .htmlWebpackPluginAlterAssetTags
@@ -92,37 +80,48 @@ class PWAWebpackPlugin {
           .alterAssetTagGroups
       }
 
-      hook.tapAsync(self.constructor.name, (htmlPluginData: any, cb: any) => {
-        writeInHtmlWebpackPlugin(self, htmlPluginData)
+      hook.tapAsync(pluginName, (htmlPluginData: any, cb: any) => {
+        refrenceByHWP(options, htmlPluginData)
         cb()
       })
     })
 
-    // 获取所有资源目录，并添加到缓存文件列表
-    compiler.hooks.emit.tap(self.constructor.name, (compilation) => {
+    // Get all resource directories and add them to the cache-storage list
+    compiler.hooks.emit.tapAsync(pluginName, async (compilation, cb) => {
       const { assets } = compilation
-      for (const file of Object.keys(assets)) {
-        if (self.noCache.includes(file)) continue
+      loop: for (const file of Object.keys(assets)) {
+        if (options.noCache.length > 0) {
+          for (const pattern of options.noCache) {
+            if (pattern instanceof RegExp) {
+              if (pattern.test(file)) continue loop
+            } else {
+              if (file === pattern) continue loop
+            }
+          }
+        }
 
-        const cachePath = self.noStaticAssets.includes(file)
+        // SPA project usually places the index.html on the server
+        const cachePath = options.noStaticAssets.includes(file)
           ? file
-          : `${self.webpackConfig.publicPath}${file}`
+          : path.join(self.webpackConfig.publicPath, file)
 
-        // spa 项目通常将 index.html 文件置于服务器
-        this.cacheList.push(cachePath)
+        self.cacheList.push(cachePath)
       }
-    })
+      // Write Manifest and Service Worker during emit phase
+      compilation.assets[options.serviceWorkerFilename] = new RawSource(
+        serviceWorkerTemplate(self)
+      )
 
-    // 写入注册表文件 和 service worker
-    compiler.hooks.done.tapAsync(self.constructor.name, (compilation, cb) => {
-      Promise.all([writeServiceWorker(self), writeManifest(self)])
-        .then(() => {
-          this.cacheList = []
-          cb()
-        })
-        .catch(({ message }) => {
-          warn(message)
-        })
+      const manifestMap = await writeManifest(
+        options,
+        self.webpackConfig.publicPath
+      )
+
+      for (const [key, value] of manifestMap.entries()) {
+        compilation.assets[key] = new RawSource(value)
+      }
+
+      cb()
     })
   }
 }
@@ -132,16 +131,13 @@ class PWAWebpackPlugin {
  * @param plugin
  * @param htmlPluginData
  */
-function writeInHtmlWebpackPlugin(
-  plugin: PWAWebpackPlugin,
-  htmlPluginData: any
-) {
+function refrenceByHWP(options: IOptions, htmlPluginData: any) {
   const manifestLink: HtmlTagObject = {
     tagName: 'link',
     voidTag: true,
     attributes: {
       rel: 'manifest',
-      href: plugin.manifestFilename,
+      href: options.manifestFilename,
     },
   }
 
@@ -150,7 +146,7 @@ function writeInHtmlWebpackPlugin(
     voidTag: false,
     innerHTML: `if ('serviceWorker' in navigator) {
       navigator.serviceWorker
-        .register('${plugin.serviceWorkerFilename}')
+        .register('${options.serviceWorkerFilename}')
         .then(e => {
           console.log('serviceWorker register success!')
         })

@@ -51,6 +51,12 @@ plugins: [
 
   网页应用清单文件名.
 
+- #### **`manifestIconDir`: string**
+
+  `require: false | default: 'manifest-icon'`
+
+  网页应用清单 icon 文件路径
+
 - #### **`cacheStorageName`: string**
 
   `require: false | default: 'runtime-storage'`

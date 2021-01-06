@@ -17,6 +17,10 @@ export interface ICustIcons extends IBasicIcons {
 
 export type IIcons = (IItemIcons | ICustIcons)[] | ICustIcons
 
+export interface IDealedIcons extends Record<'icon', IItemIcons> {
+  source: Buffer
+}
+
 export interface IManifest {
   name: string
   short_name: string
@@ -28,13 +32,14 @@ export interface IManifest {
 }
 
 export interface IOptions {
-  skipWaiting?: boolean
-  noCache?: string[]
+  skipWaiting: boolean
+  noCache: (string | RegExp)[]
   manifest: IManifest
-  manifestFilename?: string
-  serviceWorkerFilename?: string
-  cacheStorageName?: string
-  noStaticAssets?: string[]
+  manifestFilename: string
+  serviceWorkerFilename: string
+  cacheStorageName: string
+  manifestIconDir: string
+  noStaticAssets: string[]
 }
 
 export type LogFn = (message: string, color?: 'red' | 'blue' | 'green') => void

@@ -1,4 +1,13 @@
 "use strict";
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -7,6 +16,8 @@ const path_1 = __importDefault(require("path"));
 const utils_1 = require("./utils");
 const sw_1 = require("./sw");
 const manifest_1 = require("./manifest");
+const webpack_sources_1 = require("webpack-sources");
+const pluginName = 'PWAWebpackPlugin';
 class PWAWebpackPlugin {
     constructor(options) {
         this.webpackConfig = {
@@ -14,42 +25,46 @@ class PWAWebpackPlugin {
             publicPath: '',
         };
         this.cacheList = [];
-        this.noStaticAssets = ['index.html']; // webpack打包中，非静态资源，这些资源通常置于服务器上
-        this.noCache = []; // 不需要缓存的文件列表
-        this.skipWaiting = true; // 是否跳过等待
-        this.cacheStorageName = 'runtime-storage'; // cache storage 库名
-        this.manifestFilename = 'manifest.webmanifest';
-        this.serviceWorkerFilename = 'sw.js';
-        this.manifest = {
-            name: 'Progressive Web App',
-            short_name: 'PWA',
-            start_url: '/',
-            background_color: '#FFF',
-            theme_color: '#f4f4f4',
-            display: 'fullscreen',
-            icons: [],
+        this.options = {
+            noStaticAssets: ['index.html'],
+            manifest: {
+                name: 'Progressive Web App',
+                short_name: 'PWA',
+                start_url: '/',
+                background_color: '#FFF',
+                theme_color: '#f4f4f4',
+                display: 'fullscreen',
+                icons: [],
+            },
+            noCache: [],
+            skipWaiting: true,
+            cacheStorageName: 'runtime-storage',
+            manifestFilename: 'manifest.webmanifest',
+            manifestIconDir: 'manifest-icon',
+            serviceWorkerFilename: 'sw.js',
         };
-        const { skipWaiting, cacheStorageName, noCache, manifest, manifestFilename, serviceWorkerFilename, noStaticAssets, } = options;
-        if (utils_1.isType(manifest, 'Object'))
-            Object.assign(this.manifest, manifest);
-        if (typeof skipWaiting === 'boolean')
-            this.skipWaiting = skipWaiting;
-        cacheStorageName && (this.cacheStorageName = cacheStorageName);
-        manifestFilename && (this.manifestFilename = manifestFilename);
-        serviceWorkerFilename &&
-            (this.serviceWorkerFilename = serviceWorkerFilename);
-        Array.isArray(noCache) && (this.noCache = noCache);
-        Array.isArray(noStaticAssets) && (this.noStaticAssets = noStaticAssets);
+        if (utils_1.toRawType(options) === 'Object') {
+            const exists = {};
+            for (const [key, value] of Object.entries(options)) {
+                if (key === 'manifest')
+                    Object.assign(this.options.manifest, value);
+                else if (key in this.options) {
+                    exists[key] = value;
+                }
+            }
+            Object.assign(this.options, exists);
+        }
     }
     apply(compiler) {
         const self = this;
+        const { options } = self;
         const { publicPath, path: outPath } = compiler.options.output || {};
-        Object.assign(this.webpackConfig, {
+        Object.assign(self.webpackConfig, {
             publicPath: publicPath || '',
             path: outPath || path_1.default.join(process.cwd(), 'dist'),
         });
-        // index.html 中引用注册表文件和注册 service worker
-        compiler.hooks.compilation.tap(self.constructor.name, (compilation) => {
+        compiler.hooks.compilation.tap(pluginName, (compilation) => {
+            // load manifest and service worker in index.html
             // This is set in html-webpack-plugin pre-v4.
             let hook = compilation.hooks
                 .htmlWebpackPluginAlterAssetTags;
@@ -63,35 +78,41 @@ class PWAWebpackPlugin {
                 hook = htmlPlugin.constructor.getHooks(compilation)
                     .alterAssetTagGroups;
             }
-            hook.tapAsync(self.constructor.name, (htmlPluginData, cb) => {
-                writeInHtmlWebpackPlugin(self, htmlPluginData);
+            hook.tapAsync(pluginName, (htmlPluginData, cb) => {
+                refrenceByHWP(options, htmlPluginData);
                 cb();
             });
         });
-        // 获取所有资源目录，并添加到缓存文件列表
-        compiler.hooks.emit.tap(self.constructor.name, (compilation) => {
+        // Get all resource directories and add them to the cache-storage list
+        compiler.hooks.emit.tapAsync(pluginName, (compilation, cb) => __awaiter(this, void 0, void 0, function* () {
             const { assets } = compilation;
-            for (const file of Object.keys(assets)) {
-                if (self.noCache.includes(file))
-                    continue;
-                const cachePath = self.noStaticAssets.includes(file)
+            loop: for (const file of Object.keys(assets)) {
+                if (options.noCache.length > 0) {
+                    for (const pattern of options.noCache) {
+                        if (pattern instanceof RegExp) {
+                            if (pattern.test(file))
+                                continue loop;
+                        }
+                        else {
+                            if (file === pattern)
+                                continue loop;
+                        }
+                    }
+                }
+                // SPA project usually places the index.html on the server
+                const cachePath = options.noStaticAssets.includes(file)
                     ? file
-                    : `${self.webpackConfig.publicPath}${file}`;
-                // spa 项目通常将 index.html 文件置于服务器
-                this.cacheList.push(cachePath);
+                    : path_1.default.join(self.webpackConfig.publicPath, file);
+                self.cacheList.push(cachePath);
             }
-        });
-        // 写入注册表文件 和 service worker
-        compiler.hooks.done.tapAsync(self.constructor.name, (compilation, cb) => {
-            Promise.all([sw_1.writeServiceWorker(self), manifest_1.writeManifest(self)])
-                .then(() => {
-                this.cacheList = [];
-                cb();
-            })
-                .catch(({ message }) => {
-                utils_1.warn(message);
-            });
-        });
+            // Write Manifest and Service Worker during emit phase
+            compilation.assets[options.serviceWorkerFilename] = new webpack_sources_1.RawSource(sw_1.serviceWorkerTemplate(self));
+            const manifestMap = yield manifest_1.writeManifest(options, self.webpackConfig.publicPath);
+            for (const [key, value] of manifestMap.entries()) {
+                compilation.assets[key] = new webpack_sources_1.RawSource(value);
+            }
+            cb();
+        }));
     }
 }
 /**
@@ -99,34 +120,21 @@ class PWAWebpackPlugin {
  * @param plugin
  * @param htmlPluginData
  */
-function writeInHtmlWebpackPlugin(plugin, htmlPluginData) {
-    const { plugin: { version }, } = htmlPluginData;
-    let head = [];
-    let body = [];
-    if (version === 4) {
-        head = htmlPluginData.headTags;
-        body = htmlPluginData.bodyTags;
-    }
-    else {
-        head = htmlPluginData.head;
-        body = htmlPluginData.body;
-    }
-    // 引入注册表文件
-    head.unshift({
+function refrenceByHWP(options, htmlPluginData) {
+    const manifestLink = {
         tagName: 'link',
         voidTag: true,
         attributes: {
             rel: 'manifest',
-            href: plugin.manifestFilename,
+            href: options.manifestFilename,
         },
-    });
-    // 注册 service worker 脚本
-    body.push({
+    };
+    const serviceWorkerScript = {
         tagName: 'script',
         voidTag: false,
         innerHTML: `if ('serviceWorker' in navigator) {
       navigator.serviceWorker
-        .register('${plugin.serviceWorkerFilename}')
+        .register('${options.serviceWorkerFilename}')
         .then(e => {
           console.log('serviceWorker register success!')
         })
@@ -134,6 +142,15 @@ function writeInHtmlWebpackPlugin(plugin, htmlPluginData) {
           console.log(err)
         })
     }`,
-    });
+        attributes: {},
+    };
+    if (htmlPluginData.plugin.version >= 4) {
+        htmlPluginData.headTags.unshift(manifestLink);
+        htmlPluginData.bodyTags.push(serviceWorkerScript);
+    }
+    else {
+        htmlPluginData.head.unshift(manifestLink);
+        htmlPluginData.body.push(serviceWorkerScript);
+    }
 }
 exports.default = PWAWebpackPlugin;

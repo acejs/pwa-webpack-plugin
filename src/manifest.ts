@@ -1,33 +1,25 @@
-import PWAWebpackPlugin from './index'
-import { ICustIcons, IItemIcons, IIcons } from './types'
+import { IOptions } from './types'
+import { ICustIcons, IItemIcons, IIcons, IDealedIcons } from './types'
 import sharp from 'sharp'
 import path from 'path'
-import fs from 'fs'
+import { warn } from './utils'
 
-const dir = 'manifest-icon'
+export const writeManifest = async (options: IOptions, publicPath: string) => {
+  const { manifest, manifestFilename, manifestIconDir } = options
 
-export const writeManifest = async (plugin: PWAWebpackPlugin) => {
-  const {
-    webpackConfig: { path: output },
-    manifest,
-    manifest: { icons },
-    manifestFilename,
-  } = plugin
+  const result = await dealWithIcons(manifest.icons)
 
-  // 创建 icon 文件夹
-  fs.mkdirSync(path.join(output, dir))
+  const map = new Map<string, any>()
 
-  const result = await dealWithIcons(icons, output)
+  manifest.icons = result.map((item) => {
+    const src = path.join(manifestIconDir, item.icon.src)
+    map.set(src, item.source)
+    return { ...item.icon, src: path.join(publicPath, src) }
+  })
 
-  if (result instanceof Error) return result
+  map.set(manifestFilename, JSON.stringify(manifest))
 
-  plugin.manifest.icons = result
-
-  fs.writeFileSync(
-    path.join(output, manifestFilename),
-    JSON.stringify(manifest),
-    'utf8'
-  )
+  return map
 }
 
 /**
@@ -35,28 +27,21 @@ export const writeManifest = async (plugin: PWAWebpackPlugin) => {
  * @param icons options
  * @param output output path
  */
-const dealWithIcons = async (
-  icons: IIcons,
-  output: string
-): Promise<Error | IItemIcons[]> => {
+const dealWithIcons = async (icons: IIcons): Promise<IDealedIcons[]> => {
   function isCust(target: IIcons | IItemIcons): target is ICustIcons {
     return typeof target === 'object' && 'targetSizes' in target
   }
 
-  let result: IItemIcons[] = []
+  let result: IDealedIcons[] = []
 
   if (isCust(icons)) {
-    result = await genIcons(icons, output)
+    result = await genIcons(icons)
   } else {
     for (const value of icons.values()) {
       if (isCust(value)) {
-        result = result.concat(await genIcons(value, output))
+        result = result.concat(await genIcons(value))
       } else {
-        const copy = await copyIcons(value, output)
-
-        if (copy instanceof Error) return copy
-
-        result.push({ ...value, src: copy })
+        result.push(await copyIcons(value))
       }
     }
   }
@@ -69,52 +54,50 @@ const dealWithIcons = async (
  * @param icon
  * @param output
  */
-export const copyIcons = async (
-  icon: IItemIcons,
-  output: string
-): Promise<string | Error> => {
+export const copyIcons = async (icon: IItemIcons): Promise<IDealedIcons> => {
   const { src } = icon
-  // 默认截取最后的为文件名
+  // get File name
   const name = src.split('/').pop()
 
-  if (!name) return new Error(`File: ${String(src)} does't exist`)
+  if (!name) {
+    warn(`File: ${String(src)} does't exist`)
+    process.exit(1)
+  }
 
-  const newSrc = path.join(dir, name)
-
-  fs.copyFileSync(src, path.join(output, newSrc))
-
-  return newSrc
+  return {
+    icon: { ...icon, src: name },
+    source: await sharp(src).toBuffer(),
+  }
 }
 
 /**
  * generate different size of icon by option icon and put them into output path
  * @param icons
  * @param output
+ * @returns { icon: { src, sizes, type }, source: { name: source } }
  */
-export const genIcons = async (
-  icons: ICustIcons,
-  output: string
-): Promise<IItemIcons[]> => {
-  const result: IItemIcons[] = []
+export const genIcons = async (icons: ICustIcons): Promise<IDealedIcons[]> => {
+  const result: IDealedIcons[] = []
 
   const { src, type, targetSizes } = icons
   const list = targetSizes.map((size) =>
     size.split('x').map((i) => Number.parseInt(i, 10))
   )
-  const pipeline = sharp(src)
-
+  // file type
   const suffix = type.split('/')[1]
+
+  const pipeline = await sharp(src)
 
   for (const size of list.values()) {
     const sizes = size.join('x')
-    const src = path.join(dir, `icon${sizes}.${suffix}`)
+    const src = `icon${sizes}.${suffix}`
 
-    await pipeline
+    const source = await pipeline
       .clone()
       .resize(...size)
-      .toFile(path.join(output, src))
+      .toBuffer()
 
-    result.push({ src, sizes, type })
+    result.push({ icon: { src, sizes, type }, source })
   }
 
   return result

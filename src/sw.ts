@@ -1,25 +1,23 @@
-import fs from 'fs'
-import path from 'path'
 import PWAWebpackPlugin from './index'
 
-// 拼接文件内容
-const template = (plugin: PWAWebpackPlugin): string => {
+export const serviceWorkerTemplate = (plugin: PWAWebpackPlugin): string => {
   return `const cacheList = ${JSON.stringify(plugin.cacheList)}
-          const skipWaiting = ${plugin.skipWaiting}
-          const cacheName = '${plugin.cacheStorageName}'
+          const skipWaiting = ${plugin.options.skipWaiting}
+          const cacheName = '${plugin.options.cacheStorageName}'
 
-          async function clearOldResource () {
-            const keyList = await caches.keys()
-            for (const key of keyList.values()) {
+          async function cleanUp () {
+            const keys = await caches.keys()
+            for (const key of keys) {
               if (key !== cacheName) await caches.delete(key)
             }
             const cache = await caches.open(cacheName)
             const requests = await cache.keys()
             
-            const full = cacheList.map(url => new Request(url).url)
-            const old = requests.filter(request => !full.includes(request.url))
+            const resource = new Set(cacheList.map(url => new Request(url).url))
 
-            await Promise.all(old.map(request => cache.delete(request.url)))
+            const needCleanList = requests.filter(request => !resource.has(request.url))
+
+            return Promise.all(needCleanList.map(request => cache.delete(request.url)))
           }
 
           self.addEventListener('install', event => {
@@ -31,7 +29,7 @@ const template = (plugin: PWAWebpackPlugin): string => {
 
           self.addEventListener('activate', event => {
             event.waitUntil(
-              Promise.all([clearOldResource(), skipWaiting && self.clients.claim()])
+              Promise.all([cleanUp(), skipWaiting && self.clients.claim()])
             )
           })
 
@@ -41,12 +39,4 @@ const template = (plugin: PWAWebpackPlugin): string => {
                     .then(res => res || fetch(event.request))
             )
           })`
-}
-
-export const writeServiceWorker = async (plugin: PWAWebpackPlugin) => {
-  const str = template(plugin)
-
-  const sw = path.join(plugin.webpackConfig.path, plugin.serviceWorkerFilename)
-
-  fs.writeFileSync(sw, str, 'utf8')
 }
