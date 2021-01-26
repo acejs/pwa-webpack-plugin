@@ -147,7 +147,7 @@ function refrenceByHWP(options: IOptions, htmlPluginData: any) {
     voidTag: false,
     innerHTML: `if ('serviceWorker' in navigator) {
       navigator.serviceWorker
-        .register('${options.serviceWorkerFilename}')
+        .register('/${options.serviceWorkerFilename}')
         .then(e => {
           console.log('serviceWorker register success!')
         })
