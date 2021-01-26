@@ -138,7 +138,7 @@ function refrenceByHWP(options: IOptions, htmlPluginData: any) {
     voidTag: true,
     attributes: {
       rel: 'manifest',
-      href: options.manifestFilename,
+      href: `/${options.manifestFilename}`,
     },
   }
 

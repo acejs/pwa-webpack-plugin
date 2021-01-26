@@ -127,7 +127,7 @@ function refrenceByHWP(options, htmlPluginData) {
         voidTag: true,
         attributes: {
             rel: 'manifest',
-            href: options.manifestFilename,
+            href: `/${options.manifestFilename}`,
         },
     };
     const serviceWorkerScript = {
